@@ -39,7 +39,7 @@ impl Window {
                 out_color: main_color,
                 out_depth: main_depth,
             },
-            background: [0.1, 0.2, 0.3, 1.0],
+            background: [0.0, 0.0, 0.0, 1.0],
         }
     }
 
@@ -49,12 +49,22 @@ impl Window {
 
     pub fn render(&mut self) -> bool {
         use gfx::Device;
+
+        for event in self.window.poll_events() {
+            match event {
+                glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Escape)) |
+                glutin::Event::Closed => return false,
+                _ => {},
+            }
+        }
+
         self.context.encoder.clear(&self.context.out_color, self.background);
         self.context.encoder.clear_depth(&self.context.out_depth, 1.0);
-        //TODO
+        //TODO: actual rendering
         self.context.encoder.flush(&mut self.context.device);
         self.window.swap_buffers().unwrap();
         self.context.device.cleanup();
+
         true
     }
 }
