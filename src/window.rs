@@ -32,13 +32,7 @@ impl Window {
         let cbuf = factory.create_command_buffer();
         Window {
             window: window,
-            context: context::Context {
-                device: device,
-                factory: factory,
-                encoder: cbuf.into(),
-                out_color: main_color,
-                out_depth: main_depth,
-            },
+            context: context::Context::new(device, factory, cbuf, main_color, main_depth),
             background: [0.0, 0.0, 0.0, 1.0],
         }
     }
@@ -48,8 +42,6 @@ impl Window {
     }
 
     pub fn render(&mut self) -> bool {
-        use gfx::Device;
-
         for event in self.window.poll_events() {
             match event {
                 glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Escape)) |
@@ -58,13 +50,12 @@ impl Window {
             }
         }
 
-        self.context.encoder.clear(&self.context.out_color, self.background);
-        self.context.encoder.clear_depth(&self.context.out_depth, 1.0);
-        //TODO: actual rendering
-        self.context.encoder.flush(&mut self.context.device);
-        self.window.swap_buffers().unwrap();
-        self.context.device.cleanup();
+        self.context.begin(self.background);
 
+        //TODO: actual rendering
+
+        self.window.swap_buffers().unwrap();
+        self.context.end();
         true
     }
 }
