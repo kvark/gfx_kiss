@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Dzmitry Malyshau <kvarkus@gmail.com>"]
 
 [dependencies]
+cgmath = "0.12"
 env_logger = "0.3"
 gfx = "0.12"
 gfx_device_gl = "0.11"

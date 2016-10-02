@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use cgmath;
 use gfx;
 
 
@@ -9,27 +11,33 @@ gfx_defines! {
         pos: [f32; 4] = "a_Position",
         tc: [f32; 2] = "a_TexCoord",
     }
-    constant VsParams {
-        mvp: [[f32; 4]; 4] = "u_ModelViewProj",
-    }
-    constant PsParams {
+    constant Locals {
+        world: [[f32; 4]; 4] = "u_World",
         color: [f32; 4] = "u_Color",
+    }
+    constant Globals {
+        view_proj: [[f32; 4]; 4] = "u_ViewProj",
     }
     pipeline pipe {
         vbuf: gfx::VertexBuffer<Vertex> = (),
-        v_par: gfx::ConstantBuffer<VsParams> = "b_VsParams",
-        p_par: gfx::ConstantBuffer<PsParams> = "b_PsParams",
+        locals: gfx::ConstantBuffer<Locals> = "b_Locals",
+        globals: gfx::ConstantBuffer<Globals> = "b_Globals",
         texture: gfx::TextureSampler<[f32; 4]> = "u_Texture",
-        ocolor: gfx::RenderTarget<ColorFormat> = "Target0",
+        ocolor: gfx::BlendTarget<ColorFormat> = ("Target0", gfx::state::MASK_ALL, gfx::preset::blend::ALPHA),
         odepth: gfx::DepthTarget<DepthFormat> = gfx::preset::depth::LESS_EQUAL_WRITE,
     }
 }
 
+
 const VS: &'static [u8] = b"
     #version 150 core
 
-    uniform b_VsParams {
-        mat4 u_ModelViewProj;
+    uniform b_Locals {
+        mat4 u_World;
+        vec4 u_Color;
+    };
+    uniform b_Globals {
+        mat4 u_ViewProj;
     };
 
     in vec4 a_Position;
@@ -38,14 +46,15 @@ const VS: &'static [u8] = b"
 
     void main() {
         v_TexCoord = a_TexCoord;
-        gl_Position = u_ModelViewProj * a_Position;
+        gl_Position = u_ViewProj * (u_World * a_Position);
     }
 ";
 const FS: &'static [u8] = b"
     #version 150 core
 
     uniform sampler2D u_Texture;
-    uniform b_PsParams {
+    uniform b_Locals {
+        mat4 u_World;
         vec4 u_Color;
     };
 
@@ -57,13 +66,54 @@ const FS: &'static [u8] = b"
     }
 ";
 
+#[derive(Eq, Hash, PartialEq)]
+pub struct Handle(u32);
+
+pub struct Object {
+    pub pos: cgmath::Vector3<f32>,
+    pub orient: cgmath::Quaternion<f32>,
+    pub scale: f32,
+    pub color: [f32; 4],
+}
+
+impl Object {
+    fn to_locals(&self) -> Locals {
+        Locals {
+            world: cgmath::Matrix4::from(cgmath::Decomposed {
+                disp: self.pos,
+                rot: self.orient,
+                scale: self.scale,
+            }).into(),
+            color: self.color,
+        }
+    }
+}
+
+enum Kind {
+    Point,
+    Line,
+    Mesh,
+}
+
+struct Entry<R: gfx::Resources> {
+    object: Object,
+    kind: Kind,
+    slice: gfx::Slice<R>,
+    pso: pipe::Data<R>,
+}
+
 pub struct Context<D: gfx::Device, F> {
+    last_id: u32,
     device: D,
     factory: F,
     encoder: gfx::Encoder<D::Resources, D::CommandBuffer>,
     out_color: gfx::handle::RenderTargetView<D::Resources, ColorFormat>,
     out_depth: gfx::handle::DepthStencilView<D::Resources, DepthFormat>,
-    pso: gfx::PipelineState<D::Resources, pipe::Meta>,
+    pso_point: gfx::PipelineState<D::Resources, pipe::Meta>,
+    pso_line: gfx::PipelineState<D::Resources, pipe::Meta>,
+    pso_mesh: gfx::PipelineState<D::Resources, pipe::Meta>,
+    cb_globals: gfx::handle::Buffer<D::Resources, Globals>,
+    data: HashMap<Handle, Entry<D::Resources>>,
 }
 
 impl<D: gfx::Device, F: gfx::traits::FactoryExt<D::Resources>> Context<D, F> {
@@ -72,24 +122,52 @@ impl<D: gfx::Device, F: gfx::traits::FactoryExt<D::Resources>> Context<D, F> {
                od: gfx::handle::DepthStencilView<D::Resources, DepthFormat>)
                -> Self
     {
-        let pso = f.create_pipeline_simple(VS, FS, pipe::new()).unwrap();
+        let prog = f.link_program(VS, FS).unwrap();
+        let p1 = f.create_pipeline_from_program(&prog, gfx::Primitive::PointList,
+            gfx::state::Rasterizer::new_fill(), pipe::new()).unwrap();
+        let p2 = f.create_pipeline_from_program(&prog, gfx::Primitive::LineList,
+            gfx::state::Rasterizer::new_fill(), pipe::new()).unwrap();
+        let p3 = f.create_pipeline_from_program(&prog, gfx::Primitive::TriangleList,
+            gfx::state::Rasterizer::new_fill().with_cull_back(), pipe::new()).unwrap();
+        let globals = f.create_constant_buffer(1);
         Context {
+            last_id: 0,
             device: d,
             factory: f,
             encoder: cb.into(),
             out_color: oc,
             out_depth: od,
-            pso: pso,
+            pso_point: p1,
+            pso_line: p2,
+            pso_mesh: p3,
+            cb_globals: globals,
+            data: HashMap::new(),
         }
     }
 
-    pub fn begin(&mut self, background: [f32; 4]) {
+    pub fn draw(&mut self, background: [f32; 4], view_proj: cgmath::Matrix4<f32>) {
         self.device.cleanup();
+        self.encoder.update_constant_buffer(&self.cb_globals, &Globals {
+            view_proj: view_proj.into(),
+        });
         self.encoder.clear(&self.out_color, background);
         self.encoder.clear_depth(&self.out_depth, 1.0);
+        for data in self.data.values() {
+            let pso = match data.kind {
+                Kind::Point => &self.pso_point,
+                Kind::Line => &self.pso_line,
+                Kind::Mesh => &self.pso_mesh,
+            };
+            self.encoder.draw(&data.slice, pso, &data.pso);
+        }
+        self.encoder.flush(&mut self.device);
     }
 
-    pub fn end(&mut self) {
-        self.encoder.flush(&mut self.device);
+    pub fn with<T, P: FnOnce(&mut Object)->T>(&mut self, h: &Handle, fun: P) -> T {
+        let mut data = self.data.get_mut(h).unwrap();
+        let ret = fun(&mut data.object);
+        let locals = data.object.to_locals();
+        self.encoder.update_constant_buffer(&data.pso.locals, &locals);
+        ret
     }
 }

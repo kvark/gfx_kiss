@@ -42,6 +42,7 @@ impl Window {
     }
 
     pub fn render(&mut self) -> bool {
+        use cgmath;
         for event in self.window.poll_events() {
             match event {
                 glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Escape)) |
@@ -50,12 +51,12 @@ impl Window {
             }
         }
 
-        self.context.begin(self.background);
-
-        //TODO: actual rendering
-
+        self.context.draw(self.background, cgmath::SquareMatrix::identity()); //TODO
         self.window.swap_buffers().unwrap();
-        self.context.end();
         true
+    }
+
+    pub fn with<T, P: FnOnce(&mut context::Object)->T>(&mut self, h: &context::Handle, fun: P) -> T {
+        self.context.with(h, fun)
     }
 }
