@@ -77,6 +77,15 @@ pub struct Object {
 }
 
 impl Object {
+    fn new() -> Object {
+        Object {
+            pos: cgmath::Zero::zero(),
+            orient: cgmath::One::one(),
+            scale: 1.0,
+            color: [1.0; 4],
+        }
+    }
+
     fn to_locals(&self) -> Locals {
         Locals {
             world: cgmath::Matrix4::from(cgmath::Decomposed {
@@ -89,7 +98,7 @@ impl Object {
     }
 }
 
-enum Kind {
+pub enum Kind {
     Point,
     Line,
     Mesh,
@@ -113,6 +122,8 @@ pub struct Context<D: gfx::Device, F> {
     pso_line: gfx::PipelineState<D::Resources, pipe::Meta>,
     pso_mesh: gfx::PipelineState<D::Resources, pipe::Meta>,
     cb_globals: gfx::handle::Buffer<D::Resources, Globals>,
+    tex_dummy: gfx::handle::ShaderResourceView<D::Resources, [f32; 4]>,
+    sampler: gfx::handle::Sampler<D::Resources>,
     data: HashMap<Handle, Entry<D::Resources>>,
 }
 
@@ -130,6 +141,10 @@ impl<D: gfx::Device, F: gfx::traits::FactoryExt<D::Resources>> Context<D, F> {
         let p3 = f.create_pipeline_from_program(&prog, gfx::Primitive::TriangleList,
             gfx::state::Rasterizer::new_fill().with_cull_back(), pipe::new()).unwrap();
         let globals = f.create_constant_buffer(1);
+        let (_, texture) = f.create_texture_const::<gfx::format::Rgba8>(
+            gfx::tex::Kind::D2(1, 1, gfx::tex::AaMode::Single),
+            &[&[[0xFFu8, 0xFF, 0xFF, 0xFF]] as &[[u8; 4]]]).unwrap();
+        let sampler = f.create_sampler_linear();
         Context {
             last_id: 0,
             device: d,
@@ -141,6 +156,8 @@ impl<D: gfx::Device, F: gfx::traits::FactoryExt<D::Resources>> Context<D, F> {
             pso_line: p2,
             pso_mesh: p3,
             cb_globals: globals,
+            tex_dummy: texture,
+            sampler: sampler,
             data: HashMap::new(),
         }
     }
@@ -169,5 +186,31 @@ impl<D: gfx::Device, F: gfx::traits::FactoryExt<D::Resources>> Context<D, F> {
         let locals = data.object.to_locals();
         self.encoder.update_constant_buffer(&data.pso.locals, &locals);
         ret
+    }
+
+    pub fn add<I: gfx::IntoIndexBuffer<D::Resources>>(&mut self, kind: Kind, vertices: &[Vertex], indices: I) -> Handle {
+        self.last_id += 1;
+        let object = Object::new();
+        let locals = self.factory.create_constant_buffer(1);
+        let (vbuf, slice) = self.factory.create_vertex_buffer_with_slice(vertices, indices);
+        self.encoder.update_constant_buffer(&locals, &object.to_locals());
+        self.data.insert(Handle(self.last_id), Entry {
+            object: object,
+            kind: kind,
+            slice: slice,
+            pso: pipe::Data {
+                vbuf: vbuf,
+                locals: locals,
+                globals: self.cb_globals.clone(),
+                texture: (self.tex_dummy.clone(), self.sampler.clone()),
+                ocolor: self.out_color.clone(),
+                odepth: self.out_depth.clone(),
+            },
+        });
+        Handle(self.last_id)
+    }
+
+    pub fn remove(&mut self, h: Handle) {
+        self.data.remove(&h);
     }
 }

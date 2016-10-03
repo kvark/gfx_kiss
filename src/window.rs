@@ -59,4 +59,28 @@ impl Window {
     pub fn with<T, P: FnOnce(&mut context::Object)->T>(&mut self, h: &context::Handle, fun: P) -> T {
         self.context.with(h, fun)
     }
+
+    pub fn add_point(&mut self, c: [f32; 3]) -> context::Handle {
+        let vert = context::Vertex {
+            pos: [c[0], c[1], c[2], 1.0],
+            tc: [0.0, 0.0],
+        };
+        self.context.add(context::Kind::Point, &[vert], ())
+    }
+
+    pub fn add_line(&mut self, a: [f32; 3], b: [f32; 3]) -> context::Handle {
+        let va = context::Vertex {
+            pos: [a[0], a[1], a[2], 1.0],
+            tc: [0.0, 0.0],
+        };
+        let vb = context::Vertex {
+            pos: [b[0], b[1], b[2], 1.0],
+            tc: [1.0, 0.0],
+        };
+        self.context.add(context::Kind::Line, &[va, vb], ())
+    }
+
+    pub fn remove(&mut self, h: context::Handle) {
+        self.context.remove(h)
+    }
 }
