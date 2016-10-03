@@ -1,3 +1,4 @@
+use std::cmp;
 use gfx_device_gl;
 use glutin;
 
@@ -60,24 +61,22 @@ impl Window {
         self.context.with(h, fun)
     }
 
-    pub fn add_point(&mut self, c: [f32; 3]) -> context::Handle {
-        let vert = context::Vertex {
-            pos: [c[0], c[1], c[2], 1.0],
-            tc: [0.0, 0.0],
-        };
-        self.context.add(context::Kind::Point, &[vert], ())
+    pub fn add_points(&mut self, points: &[[f32; 3]]) -> context::Handle {
+        let ratio = 1.0 / cmp::max(1, points.len()) as f32;
+        let verts: Vec<_> = points.iter().enumerate().map(|(i, p)| context::Vertex {
+            pos: [p[0], p[1], p[2], 1.0],
+            tc: [(i as f32 + 0.5) * ratio, 0.0],
+        }).collect();
+        self.context.add(context::Kind::Point, &verts, ())
     }
 
-    pub fn add_line(&mut self, a: [f32; 3], b: [f32; 3]) -> context::Handle {
-        let va = context::Vertex {
-            pos: [a[0], a[1], a[2], 1.0],
-            tc: [0.0, 0.0],
-        };
-        let vb = context::Vertex {
-            pos: [b[0], b[1], b[2], 1.0],
-            tc: [1.0, 0.0],
-        };
-        self.context.add(context::Kind::Line, &[va, vb], ())
+    pub fn add_lines(&mut self, lines: &[[f32; 3]]) -> context::Handle {
+        let ratio = 1.0 / (cmp::max(2, lines.len()) - 1) as f32;
+        let verts: Vec<_> = lines.iter().enumerate().map(|(i, l)| context::Vertex {
+            pos: [l[0], l[1], l[2], 1.0],
+            tc: [i as f32 * ratio, 0.0],
+        }).collect();
+        self.context.add(context::Kind::Line, &verts, ())
     }
 
     pub fn remove(&mut self, h: context::Handle) {
