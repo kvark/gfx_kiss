@@ -79,6 +79,21 @@ impl Window {
         self.context.add(context::Kind::Line, &verts, ())
     }
 
+    pub fn add_cube(&mut self, size: [f32; 3]) -> context::Handle {
+        use genmesh::generators::{Cube, SharedVertex, IndexedPolygon};
+        let cube = Cube::new();
+        let verts: Vec<_> = cube.shared_vertex_iter().map(|v| context::Vertex {
+            pos: [v.0 * 0.5 * size[0], v.1 * 0.5 * size[1], v.2 * 0.5 * size[2], 1.0],
+            tc: [0.0, 0.0], //TODO
+        }).collect();
+        let mut indices = Vec::<u16>::new();
+        for q in cube.indexed_polygon_iter() {
+            indices.extend(&[q.x as u16, q.y as u16, q.z as u16,
+                q.x as u16, q.z as u16, q.w as u16]);
+        }
+        self.context.add(context::Kind::Mesh, &verts, indices.as_slice())
+    }
+
     pub fn remove(&mut self, h: context::Handle) {
         self.context.remove(h)
     }
