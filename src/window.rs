@@ -4,7 +4,6 @@ use glutin;
 
 use context;
 
-
 pub struct Window {
     window: glutin::Window,
     context: context::Context<gfx_device_gl::Device, gfx_device_gl::Factory>,
@@ -96,5 +95,14 @@ impl Window {
 
     pub fn remove(&mut self, h: context::Handle) {
         self.context.remove(h)
+    }
+
+    pub fn set_texture_by_data(&mut self, h: &context::Handle, w: u16, data: &[[u8; 4]]) {
+        let tex = self.context.create_texture_srgb(w, (data.len() / w as usize) as u16, data);
+        self.context.mut_pso_data(h).texture.0 = tex;
+    }
+
+    pub fn set_texture_by_path(&mut self, h: &context::Handle, path: &str) {
+        //TODO: piston-image
     }
 }

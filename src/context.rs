@@ -188,6 +188,10 @@ impl<D: gfx::Device, F: gfx::traits::FactoryExt<D::Resources>> Context<D, F> {
         ret
     }
 
+    pub fn mut_pso_data(&mut self, h: &Handle) -> &mut pipe::Data<D::Resources> {
+        &mut self.data.get_mut(h).unwrap().pso
+    }
+
     pub fn add<I: gfx::IntoIndexBuffer<D::Resources>>(&mut self, kind: Kind, vertices: &[Vertex], indices: I) -> Handle {
         self.last_id += 1;
         let object = Object::new();
@@ -212,5 +216,14 @@ impl<D: gfx::Device, F: gfx::traits::FactoryExt<D::Resources>> Context<D, F> {
 
     pub fn remove(&mut self, h: Handle) {
         self.data.remove(&h);
+    }
+
+    pub fn create_texture_srgb(&mut self, w: u16, h: u16, contents: &[[u8; 4]])
+                               -> gfx::handle::ShaderResourceView<D::Resources, [f32; 4]>
+    {
+        use gfx::tex::{Kind, Size, AaMode};
+        self.factory.create_texture_const::<gfx::format::Srgba8>(
+            Kind::D2(w as Size, h as Size, AaMode::Single),
+            &[contents]).unwrap().1
     }
 }
