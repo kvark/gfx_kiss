@@ -1,8 +1,10 @@
 use std::cmp;
 use gfx_device_gl;
 use glutin;
+use image;
 
 use context;
+
 
 pub struct Window {
     window: glutin::Window,
@@ -103,6 +105,9 @@ impl Window {
     }
 
     pub fn set_texture_by_path(&mut self, h: &context::Handle, path: &str) {
-        //TODO: piston-image
+        use gfx::cast_slice;
+        let img = image::open(path).unwrap().to_rgba();
+        let (width, _height) = img.dimensions();
+        self.set_texture_by_data(h, width as u16, cast_slice(&img))
     }
 }
